@@ -14,6 +14,11 @@ HEADERS = {
     'Content-Type': 'application/json'
 }
 
+# --- FUNGSI FORMAT RUPIAH ---
+def format_rupiah(angka):
+    # Mengubah angka menjadi format ribuan dengan titik (contoh: 3.500.000)
+    return f"Rp {angka:,.0f}".replace(',', '.')
+
 # --- FUNGSI DATABASE ---
 def load_data():
     try:
@@ -47,9 +52,9 @@ st.write("---")
 
 # Membuat Card Metric
 col1, col2, col3 = st.columns(3)
-col1.metric(label="💰 Total Saldo", value=f"Rp {saldo_sekarang:,.0f}")
-col2.metric(label="📈 Pemasukan", value=f"Rp {total_masuk:,.0f}")
-col3.metric(label="📉 Pengeluaran", value=f"Rp {total_keluar:,.0f}")
+col1.metric(label="💰 Total Saldo", value=format_rupiah(saldo_sekarang))
+col2.metric(label="📈 Pemasukan", value=format_rupiah(total_masuk))
+col3.metric(label="📉 Pengeluaran", value=format_rupiah(total_keluar))
 
 st.write("---")
 
@@ -59,7 +64,8 @@ tab1, tab2, tab3 = st.tabs(["📝 Catat Transaksi", "📊 Riwayat & Hapus", "�
 # TAB 1: CATAT TRANSAKSI
 with tab1:
     st.subheader("Tambah Transaksi Baru")
-    with st.form("form_transaksi"):
+    # Menambahkan clear_on_submit=True agar form otomatis kosong setelah disimpan
+    with st.form("form_transaksi", clear_on_submit=True):
         jenis = st.radio("Jenis Transaksi", ["Masuk", "Keluar"], horizontal=True)
         
         # Opsi Kategori Dinamis
@@ -101,21 +107,46 @@ with tab2:
     if len(st.session_state.data) == 0:
         st.info("Belum ada transaksi dicatat.")
     else:
-        # Ubah ke DataFrame Pandas agar rapi
+        # Ubah ke DataFrame Pandas agar mudah diurutkan
         df = pd.DataFrame(st.session_state.data)
         # Urutkan dari yang terbaru
         df = df.sort_values(by="tanggal", ascending=False).reset_index(drop=True)
         
-        st.dataframe(df[["tanggal", "jenis", "kategori", "nominal", "keterangan"]], use_container_width=True)
-        
+        # --- MEMBUAT TABEL CUSTOM DENGAN TOMBOL HAPUS ---
+        # Header Tabel
+        col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([2, 1.5, 2.5, 2, 2.5, 1.5])
+        col_h1.markdown("**Tanggal**")
+        col_h2.markdown("**Jenis**")
+        col_h3.markdown("**Kategori**")
+        col_h4.markdown("**Nominal**")
+        col_h5.markdown("**Keterangan**")
+        col_h6.markdown("**Aksi**")
         st.write("---")
-        st.write("**Hapus Transaksi**")
-        id_hapus = st.selectbox("Pilih ID Transaksi yang ingin dihapus:", df['id'].tolist())
-        if st.button("Hapus Data"):
-            st.session_state.data = [t for t in st.session_state.data if t['id'] != id_hapus]
-            save_data(st.session_state.data)
-            st.warning("Data berhasil dihapus!")
-            st.rerun()
+        
+        # Isi Tabel (Looping tiap baris data)
+        for index, row in df.iterrows():
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 2.5, 2, 2.5, 1.5])
+            
+            col1.write(row['tanggal'])
+            
+            # Beri warna teks untuk membedakan Masuk (Hijau) & Keluar (Merah)
+            if row['jenis'] == 'Masuk':
+                col2.markdown("🟢 Masuk")
+            else:
+                col2.markdown("🔴 Keluar")
+                
+            col3.write(row['kategori'])
+            col4.write(format_rupiah(row['nominal'])) # Menggunakan pemisah ribuan
+            col5.write(row['keterangan'] if row['keterangan'] else "-")
+            
+            # Tombol hapus langsung di setiap baris
+            if col6.button("❌ Hapus", key=f"hapus_{row['id']}"):
+                # Hapus dari session state
+                st.session_state.data = [t for t in st.session_state.data if t['id'] != row['id']]
+                # Simpan ulang ke JSONBin
+                save_data(st.session_state.data)
+                # Refresh halaman
+                st.rerun()
 
 # TAB 3: STATISTIK SEDERHANA
 with tab3:
