@@ -4,6 +4,7 @@ import requests
 import uuid
 import time
 from datetime import datetime
+import plotly.express as px # Tambahan untuk grafik Donat
 
 # --- KONFIGURASI JSONBIN ---
 BIN_ID = st.secrets["BIN_ID"]
@@ -32,7 +33,7 @@ def save_data(data):
     requests.put(URL, json=payload, headers=HEADERS)
 
 # --- PENGATURAN HALAMAN ---
-st.set_page_config(page_title="DompetKu", page_icon="💳", layout="centered")
+st.set_page_config(page_title="PitiDen", page_icon="💳", layout="centered")
 
 if 'data' not in st.session_state:
     st.session_state.data = load_data()
@@ -45,7 +46,7 @@ total_keluar = sum(t['nominal'] for t in data_transaksi if t['jenis'] == 'Keluar
 saldo_sekarang = total_masuk - total_keluar
 
 # --- TAMPILAN DASHBOARD ---
-st.title("💳 DompetKu - Catatan Keuangan")
+st.title("💳 PitiDen")
 st.write("---")
 
 col1, col2, col3 = st.columns(3)
@@ -55,21 +56,30 @@ col3.metric(label="📉 Pengeluaran", value=format_rupiah(total_keluar))
 
 st.write("---")
 
-# --- MENU APLIKASI (Dengan Ikon Baru) ---
+# --- MENU APLIKASI ---
 tab1, tab2, tab3 = st.tabs(["💸 Catat Transaksi", "🧾 Riwayat & Hapus", "⚖️ Bandingkan"])
 
 # TAB 1: CATAT TRANSAKSI
 with tab1:
     st.subheader("📥 Tambah Transaksi Baru")
     with st.form("form_transaksi", clear_on_submit=True):
-        jenis = st.radio("🏷️ Jenis Transaksi", ["Masuk", "Keluar"], horizontal=True)
         
+        # Pilihan dinamis dengan format warna Icon (Nilai aslinya tetap 'Masuk' atau 'Keluar')
+        jenis = st.radio(
+            "🏷️ Jenis Transaksi", 
+            options=["Masuk", "Keluar"], 
+            format_func=lambda x: "🟢 Uang Masuk" if x == "Masuk" else "🔴 Uang Keluar",
+            horizontal=True
+        )
+        
+        # Opsi Kategori otomatis berganti menyesuaikan pilihan Radio Button di atas
         if jenis == "Masuk":
             kategori_opsi = ["Gaji", "Usaha", "Proyek", "Honor", "Lainnya"]
         else:
             kategori_opsi = ["Tagihan Rutin (SPP, Listrik, Air)", "Kebutuhan Pokok", "Transportasi", "Kesehatan", "Hiburan", "Sosial", "Lainnya"]
             
         kategori = st.selectbox("📂 Kategori", kategori_opsi)
+        
         tanggal = st.date_input("📅 Tanggal Transaksi", datetime.today())
         nominal = st.number_input("💵 Nominal (Rp)", min_value=0, step=5000)
         keterangan = st.text_input("📝 Keterangan Tambahan")
@@ -89,11 +99,8 @@ with tab1:
                 st.session_state.data.append(transaksi_baru)
                 save_data(st.session_state.data)
                 
-                # Menampilkan notifikasi sukses berwarna hijau
                 st.success("✅ Yey! Transaksi berhasil disimpan ke database.")
-                
-                # Memberi jeda 1 detik agar notifikasi terbaca sebelum halaman diperbarui
-                time.sleep(1)
+                time.sleep(1.2) # Jeda lebih lama sedikit agar nyaman dibaca
                 st.rerun()
             else:
                 st.error("⚠️ Nominal tidak boleh kosong atau nol!")
@@ -132,30 +139,51 @@ with tab2:
                 save_data(st.session_state.data)
                 st.rerun()
 
-# TAB 3: STATISTIK PERBANDINGAN
+# TAB 3: STATISTIK PERBANDINGAN (DIAGRAM DONAT)
 with tab3:
     st.subheader("⚖️ Perbandingan Pemasukan & Pengeluaran")
     
     if total_masuk > 0 or total_keluar > 0:
-        # Menyiapkan data untuk grafik
+        # Menyiapkan data untuk Plotly
         df_chart = pd.DataFrame({
-            "Jenis": ["Masuk", "Keluar"],
-            "Nominal": [total_masuk, total_keluar]
+            "Jenis": ["Pemasukan", "Pengeluaran"],
+            "Nominal": [total_masuk, total_keluar],
+            # Membuat kolom teks khusus agar format nominalnya menggunakan titik ala Indonesia
+            "Teks": [format_rupiah(total_masuk), format_rupiah(total_keluar)] 
         })
         
-        # Jadikan 'Jenis' sebagai index agar label grafiknya rapi di Streamlit
-        df_chart.set_index("Jenis", inplace=True)
+        # Filter nilai 0 agar tidak merusak tampilan donat
+        df_chart = df_chart[df_chart["Nominal"] > 0]
         
-        # Menampilkan grafik batang
-        st.bar_chart(df_chart)
+        # Membuat Grafik Donat
+        fig = px.pie(
+            df_chart, 
+            values='Nominal', 
+            names='Jenis', 
+            hole=0.5, # Membuat lubang di tengah (Donat)
+            color='Jenis',
+            color_discrete_map={'Pemasukan': '#2ecc71', 'Pengeluaran': '#e74c3c'} # Hijau & Merah
+        )
         
-        # Tambahan Analisis Sederhana
+        # Konfigurasi Teks di dalam Donat (% dan Nominal)
+        fig.update_traces(
+            textinfo='percent+label',
+            texttemplate='<b>%{label}</b><br>%{percent}<br>%{customdata[0]}',
+            customdata=df_chart[['Teks']],
+            textposition='inside',
+            insidetextorientation='horizontal'
+        )
+        
+        # Tampilkan ke Streamlit
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Analisis Sederhana
         st.write("---")
         if total_masuk > total_keluar:
-            st.success(f"🥳 Keren! Pemasukanmu lebih besar dari pengeluaran. Ada sisa uang sebesar **{format_rupiah(saldo_sekarang)}** yang bisa ditabung.")
+            st.success(f"🥳 Keren! Pemasukan lebih besar. Ada sisa uang **{format_rupiah(saldo_sekarang)}**.")
         elif total_keluar > total_masuk:
-            st.error(f"⚠️ Hati-hati! Pengeluaranmu lebih besar **{format_rupiah(total_keluar - total_masuk)}** dari pemasukan. Coba cek ulang riwayat belanjamu.")
+            st.error(f"⚠️ Hati-hati! Pengeluaran lebih besar **{format_rupiah(total_keluar - total_masuk)}** dari pemasukan.")
         else:
-            st.warning("⚖️ Pemasukan dan pengeluaranmu persis sama (Impasse/Nol).")
+            st.warning("⚖️ Pemasukan dan pengeluaran persis sama (Nol).")
     else:
         st.info("💡 Belum ada data keuangan untuk dibandingkan.")
